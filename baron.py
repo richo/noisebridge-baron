@@ -82,10 +82,10 @@ def door_loop():
 def reload_loop():
     global codes
     while True:
-        time.sleep(CODES_RELOAD_TIME) #reload 
         new_codes = load_codes()
         if new_codes:
             codes = new_codes
+        time.sleep(CODES_RELOAD_TIME) #reload 
 
 def load_codes():
     try:

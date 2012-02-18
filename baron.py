@@ -3,7 +3,7 @@
 # 
 # requires python-serial (PySerial) library
 # 
-# automatically reloads CODES_PATH every CODES_RELOAD_TIME seconds - will log error
+# automatically reloads from keycode file every CODES_RELOAD_TIME seconds - will log error
 # and keep old code list if there are any issues. we may want this to respond
 # to a specific "reload" signal instead. please don't just restart the process to refresh.
 # 

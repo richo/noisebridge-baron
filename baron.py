@@ -11,6 +11,7 @@
 CODES_RELOAD_TIME = 10 # seconds
 
 import threading, time, signal, sys, socket
+from threading import Thread, Lock
 from optparse import OptionParser
 import serial
 import subprocess
@@ -23,6 +24,8 @@ codes_path = ''
 serial_path = ''
 keypad = 0
 
+play_intro = False
+intro = {}
 
 import urllib,urllib2, json
 gate_endpoint = 'http://api.noisebridge.net/gate/'
@@ -46,32 +49,42 @@ def open_gate(endpoint = gate_endpoint, command = open_command):
                 'message' : 'Could not decode JSON from api.noisebridge.net/gate/ %r'
                 % results }
 
-greeting = [
-    "Greetings Noisebridge, "
-]
+auto_open = True
 
 def dial_operator():
-    words = [line.strip() for line in open('/usr/local/share/baron/words')]
+#    cmd = [ 'sshpass', '-p', 'mediacenter', 'ssh',
+#            '-o', 'StrictHostKeyChecking=no',
+#            '-o', 'UserKnownHostsFile=/dev/null',
+#            'mediacenter@horsy', 'mpg123 chime.mp3' ]
 
-    cmd = [ 'sshpass', '-p', 'mediacenter', 'ssh',
-            '-o', 'StrictHostKeyChecking=no',
-            '-o', 'UserKnownHostsFile=/dev/null',
-            'mediacenter@horsy', 'mpg123 chime.mp3' ]
+    cmd = [ '/usr/bin/aplay', '/home/jesse/chime/default.wav' ]
     process = subprocess.call(cmd)
 
-    gate_status = open_gate()
-    if gate_status.get('open', False):
-        log.write("0 code success\n")
-        keypad.write('GH') #green led, happy sound
-    else:
-        log.write("0 code unknown error\n")
+    if auto_open:
+        gate_status = open_gate()
+        if gate_status.get('open', False):
+            log.write("auto-opened\n")
+            keypad.write('GH') #green led, happy sound
+        else:
+            log.write("auto-open failed\n")
 
         # log.write("0 code error: " + 
         #     gate_status.open('message', 'No message received from gate') + "\n")
         # AttributeError: 'dict' object has no attribute 'open'
 
+def chime_loop():
+    global play_intro
+    while True:
+        while not play_intro:
+            time.sleep(1)
+        play_intro = False
+        time.sleep(40)
+        cmd = [ 'aplay', '/home/jesse/duul.wav' ]
+        subprocess.call(cmd)
+
 def door_loop():
-    global codes, codes_path, serial_path, keypad
+    global codes, codes_path, serial_path, keypad, play_intro
+
     while True:
         log.write("Waiting for input from keypad\n")
         # try:
@@ -104,6 +117,8 @@ def door_loop():
                     if gate_status.get('open', False):
                         log.write("success, gate opening\n")
                         keypad.write('BH') #blue led, happy sound
+                        if digits == "6161":
+                            play_intro = True
                     else:
                         log.write("error with the gate\n")
                         # gate_status.open('message', 'No message received from gate')
@@ -201,5 +216,7 @@ except:
     
 reload_thread = threading.Thread(target=reload_loop)
 door_thread = threading.Thread(target=door_loop)
+chime_thread = threading.Thread(target=chime_loop)
 reload_thread.start()
 door_thread.start()
+chime_thread.start()

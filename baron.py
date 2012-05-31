@@ -17,6 +17,7 @@ import serial
 import subprocess
 import random
 import traceback
+from datetime import datetime
 
 log = 0 # make global
 codes = []
@@ -67,17 +68,17 @@ def dial_operator():
     if auto_open:
         gate_status = open_gate()
         if gate_status.get('open', False):
-            log.write("auto-opened\n")
+            logwrite("auto-opened\n")
             # need a handle to the keypad
             #keypad.write('GH') #green led, happy sound
         else:
-            log.write("auto-open failed\n")
+            logwrite("auto-open failed\n")
 
-        # log.write("0 code error: " + 
+        # logwrite("0 code error: " + 
         #     gate_status.open('message', 'No message received from gate') + "\n")
         # AttributeError: 'dict' object has no attribute 'open'
     else:
-        log.write("Someone is ringing the doorbell, let them in eh?\n");
+        logwrite("Someone is ringing the doorbell, let them in eh?\n");
 
 def chime_loop():
     global play_intro
@@ -94,27 +95,27 @@ def door_loop():
     global codes, codes_path, serial_path, keypad, play_intro
 
     while True:
-        log.write("Waiting for input from keypad\n")
+#        logwrite("Waiting for input from keypad\n")
         # try:
         #     keypad.write('Q')
         #     time.sleep(1)
         #     alive = keypad.read(6)
         #     if alive[0:5] == "QUIET":
-        #         log.write("Good, got back QUIET.\n")
+        #         logwrite("Good, got back QUIET.\n")
         #     else:
-        #         log.write("Bad, got [" + alive + "]\n")
+        #         logwrite("Bad, got [" + alive + "]\n")
         # except:
-        #     log.write("Exception in keypad keepalive.\n")
+        #     logwrite("Exception in keypad keepalive.\n")
         try:
             digits = keypad.read(1)
             if digits.isdigit():
                 if digits == "0":
-                    log.write("Dialing operator:\n")
+                    logwrite("Dialing operator:\n")
                     dial_operator()
-                    log.write("Dialed.\n")
+                    logwrite("Dialed.\n")
                 keypad.timeout=5 #give 5 seconds after last input
                 while len(digits) < 7 and digits not in codes:
-                    log.write("entered: " + digits + "\n")
+                    logwrite("entered: " + digits + "\n")
                     new_digit = keypad.read(1)
                     if new_digit.isdigit():
                         digits += new_digit
@@ -123,7 +124,7 @@ def door_loop():
                 if digits in codes:
                     gate_status = open_gate()
                     if gate_status.get('open', False):
-                        log.write("success, gate opening\n")
+                        logwrite("success, gate opening\n")
                         keypad.write('BH') #blue led, happy sound
                         if digits == "181920":
                             play_intro = True
@@ -134,7 +135,7 @@ def door_loop():
 #                        except KeyError:
 #                            pass
                     else:
-                        log.write("error with the gate\n")
+                        logwrite("error with the gate\n")
                         # gate_status.open('message', 'No message received from gate')
                         # AttributeError: 'dict' object has no attribute 'open'
                         keypad.write('SR') #sad sound, red led
@@ -144,10 +145,10 @@ def door_loop():
                         keypad.write('QSR') #quiet, sad sound, red led
                 else:
                     keypad.write('SR') #sad sound, red led
-                    log.write("invalid code, gate not opening\n")
+                    logwrite("invalid code, gate not opening\n")
         except: #gotta catch 'em all
-            log.write("Unknown keypad exception, restarting:\n")
-            log.write(traceback.format_exc())
+            logwrite("Unknown keypad exception, restarting:\n")
+            logwrite(traceback.format_exc())
             time.sleep(5)
 
 def reload_loop():
@@ -179,19 +180,20 @@ def load_codes():
                     chime = lines[2]
 
             entry = line.split(' ', 1)[0]
-#            log.write(user + " - " + entry + " - " + chime + "\n")
+#            logwrite(user + " - " + entry + " - " + chime + "\n")
             if entry.isdigit() and len(entry) >= 4:
                 new_codes.append(entry)
                 if chime:
                     chimes[entry] = chime
-                    log.write("SPECIAL ENTRY FOR " + entry + ": " + chime + "\n")
-                log.write("Adding code [" + entry + "]\n")
+                    logwrite("SPECIAL ENTRY FOR " + entry + ": " + chime + "\n")
+#                logwrite("Adding code [" + entry + "]\n")
             else:
-                log.write("Bad code [" + entry + "]\n")
+                pass
+#                logwrite("Bad code [" + entry + "]\n")
         return new_codes
     except:
-        log.write("Retaining old code list, unknown error:\n")
-        log.write(traceback.format_exc())
+        logwrite("Retaining old code list, unknown error:\n")
+        logwrite(traceback.format_exc())
         return None
 
 parser = OptionParser()
@@ -208,11 +210,14 @@ serial_path = options.port
 codes_path = options.codefile
 logfile = options.logfile
 
+def logwrite(msg):
+    log.write(datetime.now().strftime("%A, %d. %B %Y %I:%M%p ") + msg)
+
 log = open(logfile, 'w', 0) # 0 == unbuffered
 if log == 0:
     print "Can't log, dying"
     sys.exit(1)
-log.write("Starting Baron...\n")
+logwrite("Starting Baron...\n")
 
 if options.test == "yes":
     dial_operator()
@@ -227,11 +232,11 @@ try:
                            rtscts=0,
                            writeTimeout=10) #writes should never timeout, but just in case...
 except serial.serialutil.SerialException as err:
-    log.write("Failed to connect to serial port " + serial_path + ", exiting\n")
+    logwrite("Failed to connect to serial port " + serial_path + ", exiting\n")
     time.sleep(5)
     sys.exit(1)
 except:
-    log.write("Unknown serial open exception, exiting: " + sys.exc_info()[0] +"\n")
+    logwrite("Unknown serial open exception, exiting: " + sys.exc_info()[0] +"\n")
     time.sleep(5)
     sys.exit(1)
 

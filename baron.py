@@ -24,6 +24,7 @@ codes_path = ''
 serial_path = ''
 keypad = 0
 
+door_sound = '/home/doorbell/chime/default.wav'
 play_intro = False
 intro = {}
 
@@ -49,7 +50,7 @@ def open_gate(endpoint = gate_endpoint, command = open_command):
                 'message' : 'Could not decode JSON from api.noisebridge.net/gate/ %r'
                 % results }
 
-auto_open = True
+auto_open = False
 
 def dial_operator():
 #    cmd = [ 'sshpass', '-p', 'mediacenter', 'ssh',
@@ -57,20 +58,26 @@ def dial_operator():
 #            '-o', 'UserKnownHostsFile=/dev/null',
 #            'mediacenter@horsy', 'mpg123 chime.mp3' ]
 
-    cmd = [ '/usr/bin/aplay', '/home/jesse/chime/default.wav' ]
+    cmd = [ '/usr/bin/aplay', door_sound ]
     process = subprocess.call(cmd)
+    # does this clip around one second?
+
+    # user experiences a pause while chime plays
 
     if auto_open:
         gate_status = open_gate()
         if gate_status.get('open', False):
             log.write("auto-opened\n")
-            keypad.write('GH') #green led, happy sound
+            # need a handle to the keypad
+            #keypad.write('GH') #green led, happy sound
         else:
             log.write("auto-open failed\n")
 
         # log.write("0 code error: " + 
         #     gate_status.open('message', 'No message received from gate') + "\n")
         # AttributeError: 'dict' object has no attribute 'open'
+    else:
+        log.write("Someone is ringing the doorbell, let them in eh?\n");
 
 def chime_loop():
     global play_intro
@@ -79,7 +86,8 @@ def chime_loop():
             time.sleep(1)
         play_intro = False
         time.sleep(40)
-        cmd = [ 'aplay', '/home/jesse/duul.wav' ]
+#        cmd = [ 'aplay', '/home/jesse/duul.wav' ]
+        cmd = [ 'aplay', '/home/doorbell/fanfare.wav' ]
         subprocess.call(cmd)
 
 def door_loop():
@@ -117,8 +125,14 @@ def door_loop():
                     if gate_status.get('open', False):
                         log.write("success, gate opening\n")
                         keypad.write('BH') #blue led, happy sound
-                        if digits == "6161":
+                        if digits == "181920":
                             play_intro = True
+                         
+#                        try:
+#                            if chimes[digits]:
+#                                play_intro = True
+#                        except KeyError:
+#                            pass
                     else:
                         log.write("error with the gate\n")
                         # gate_status.open('message', 'No message received from gate')
@@ -152,10 +166,25 @@ def load_codes():
         f = open(codes_path, 'r')
         for line in f:
             line = line.split("\n", 1)[0]
-            line = line.split('#', 1)[0] # ignore comments, delineated by #
+            lines = line.split('#', 1)
+            line = lines[0]
+#            user = lines[1]
+#            chime = lines[2]
+#            [ line, user, chime ] = lines
+            user = ""
+            chime = ""
+            if len(lines) > 1:
+                user = lines[1]
+                if len(lines) > 2:
+                    chime = lines[2]
+
             entry = line.split(' ', 1)[0]
+#            log.write(user + " - " + entry + " - " + chime + "\n")
             if entry.isdigit() and len(entry) >= 4:
                 new_codes.append(entry)
+                if chime:
+                    chimes[entry] = chime
+                    log.write("SPECIAL ENTRY FOR " + entry + ": " + chime + "\n")
                 log.write("Adding code [" + entry + "]\n")
             else:
                 log.write("Bad code [" + entry + "]\n")

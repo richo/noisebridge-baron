@@ -233,6 +233,7 @@ try:
                            writeTimeout=10) #writes should never timeout, but just in case...
 except serial.serialutil.SerialException as err:
     logwrite("Failed to connect to serial port " + serial_path + ", exiting\n")
+    logwrite(str(err))
     time.sleep(5)
     sys.exit(1)
 except:

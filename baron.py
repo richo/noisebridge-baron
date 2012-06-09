@@ -124,7 +124,7 @@ def door_loop():
                 if digits in codes:
                     gate_status = open_gate()
                     if gate_status.get('open', False):
-                        logwrite("success, gate opening\n")
+                        logwrite("success, gate opening" + digits + "\n")
                         keypad.write('BH') #blue led, happy sound
                         if digits == "181920":
                             play_intro = True

@@ -1,0 +1,7 @@
+# Lines starting with '#' are comments.  All other lines must contain numeric
+# codes which grant access, one code per line.  Leading whitespace will be
+# ignored.
+
+12345  # I've got the same combination on my luggage!
+2169
+42

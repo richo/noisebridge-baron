@@ -1,257 +1,215 @@
-# baron 0.1 2/17/12
-# davidme
-# 
-# requires python-serial (PySerial) library
-# 
-# automatically reloads from keycode file every CODES_RELOAD_TIME seconds - will log error
-# and keep old code list if there are any issues. we may want this to respond
-# to a specific "reload" signal instead. please don't just restart the process to refresh.
-# 
+#!/usr/bin/python
 
-CODES_RELOAD_TIME = 10 # seconds
+# noisebridge-baron
+#
+# Interfaces with the pay phone keypad at the entrance to Noisebridge,
+# opening the gate for those who know one of the entry codes.  Requires
+# the python-serial (pyserial) module.
+#
+# Authors have included:
+#   davidme
+#   jesse
+#   mct
 
-import threading, time, signal, sys, socket
-from threading import Thread, Lock
-from optparse import OptionParser
+import urllib, urllib2, json
+import logging
 import serial
-import subprocess
-import random
-import traceback
-from datetime import datetime
+import argparse
+import sys
+import os
 
-log = 0 # make global
+from time import sleep
+
+keypad = None
+codes_path = None
 codes = []
-codes_path = ''
-serial_path = ''
-keypad = 0
 
-door_sound = '/home/doorbell/chime/default.wav'
-play_intro = False
-intro = {}
+def open_serial(filename):
+    global keypad
 
-import urllib,urllib2, json
-gate_endpoint = 'http://api.noisebridge.net/gate/'
-open_command = {'open' : 1 }
-def open_gate(endpoint = gate_endpoint, command = open_command):
-    results = None
     try:
-        results = urllib2.urlopen(endpoint,
-                urllib.urlencode(command)).read()
-        return json.loads(results)
-    except urllib2.HTTPError, e:
-        return { 'error' :  True, 
-                'message': "HTTP Error %d when calling  api.noisebridge.net/gate/ : %s"
-                % (e.code, e.read()) }
-    except urllib2.URLError, e:
-        return { 'error' :  True, 
-                'message': "Could not reach api.noisebridge.net/gate/ data is %d"
-                % e.args }
-    except ValueError:
-        return { 'error' : True, 
-                'message' : 'Could not decode JSON from api.noisebridge.net/gate/ %r'
-                % results }
+        logging.debug("Opening %s", filename)
+        keypad = serial.Serial(filename, 300, bytesize=serial.EIGHTBITS,
+                               parity=serial.PARITY_NONE,
+                               stopbits=serial.STOPBITS_ONE,
+                               xonxoff=0,
+                               rtscts=0,
+                               writeTimeout=10)
+    #except serial.serialutil.SerialException as e:
+    except Exception as e:
+        logging.error("Serial port setup failed: %s: %s: %s", filename, type(e), str(e))
+        raise
 
-auto_open = False
+last_mtime = 0
+def load_codes(filename=None):
+    """
+    Loads a list of valid access codes from the specified filename.  Lines
+    starting with '#' are comments.  All other lines must contain numeric codes
+    which grant access, one code per line.
 
-def dial_operator():
-#    cmd = [ 'sshpass', '-p', 'mediacenter', 'ssh',
-#            '-o', 'StrictHostKeyChecking=no',
-#            '-o', 'UserKnownHostsFile=/dev/null',
-#            'mediacenter@horsy', 'mpg123 chime.mp3' ]
+    Each time this function is called, it will only re-open the codes file it's
+    mtime since the last call has changed.
+    """
 
-    cmd = [ '/usr/bin/aplay', door_sound ]
-    process = subprocess.call(cmd)
-    # does this clip around one second?
+    global codes_path, codes, last_mtime
 
-    # user experiences a pause while chime plays
+    if not filename:
+        filename = codes_path
 
-    if auto_open:
-        gate_status = open_gate()
-        if gate_status.get('open', False):
-            logwrite("auto-opened\n")
-            # need a handle to the keypad
-            #keypad.write('GH') #green led, happy sound
+    try:
+        mtime = os.stat(filename).st_mtime
+        if mtime == last_mtime:
+            logging.debug("mtime has not changed, not reloading %s", filename)
+            return
         else:
-            logwrite("auto-open failed\n")
+            last_mtime = mtime
 
-        # logwrite("0 code error: " + 
-        #     gate_status.open('message', 'No message received from gate') + "\n")
-        # AttributeError: 'dict' object has no attribute 'open'
+        new_codes = []
+        lineno = 0
+
+        for line in open(filename):
+            lineno += 1
+            code = line.split("#")[0].strip().rstrip()
+            if not code:
+                continue
+            if not code.isdigit():
+                logging.warning("%s:%d: Ignoring malformed line" % (filename, lineno))
+            new_codes.append(code)
+
+        logging.info("Loaded %d codes from %s" % (len(new_codes), filename))
+        codes = new_codes
+
+    except Exception as e:
+        logging.error("Error loading %s: %s: %s" % (filename, type(e), str(e)))
+        raise
+
+def open_gate(endpoint='http://api.noisebridge.net/gate/', command={'open':1}):
+    """
+    Uses the Noisebridge API to open the front gate.
+    """
+    try:
+        results = urllib2.urlopen(endpoint, urllib.urlencode(command)).read()
+        results = json.loads(results)
+    except urllib2.HTTPError, e:
+        logging.error("error: HTTP Error %d when calling <%s>: %s" % (endpoint, e.code, e.read()))
+        return False
+    except urllib2.URLError, e:
+        logging.error("error: Could not reach <%s> data is %d" % (endpoint, e.args))
+        return False
+    except ValueError:
+        logging.error("error: Could not decode JSON from <%s>: %r" % results)
+        return False
+
+    if results.get('open', False):
+        return True
     else:
-        logwrite("Someone is ringing the doorbell, let them in eh?\n");
+        return False
 
-def chime_loop():
-    global play_intro
-    while True:
-        while not play_intro:
-            time.sleep(1)
-        play_intro = False
-        time.sleep(40)
-#        cmd = [ 'aplay', '/home/jesse/duul.wav' ]
-        cmd = [ 'aplay', '/home/doorbell/fanfare.wav' ]
-        subprocess.call(cmd)
+def check_code(code, reload_codes=True):
+    global codes
+
+    if reload_codes:
+        load_codes()
+
+    if code and code in codes:
+        logging.info("Opening the door for code %s" % code)
+
+        if open_gate():
+            keypad.write('BH')  # Blue LED, Happy sound
+        else:
+            keypad.write('SR')  # Sad sound, Red LED
+            sleep(0.2)
+            keypad.write('QSR') # Quiet, Sad sound, Red LED
+            sleep(0.2)
+            keypad.write('QSR') # Quiet, Sad sound, Red LED
+    else:
+        logging.info("Not opening the door for bad code %s" % code)
+        keypad.write('SR') # Sad sound, Red LED
+
+def send_debug(buf):
+    global keypad
+    logging.debug("Sending %s" % repr(buf))
+    keypad.write(buf)
+
+def do_test():
+    global codes
+
+    send_debug('SR'); sleep(1) # Sad Red
+    send_debug('SG'); sleep(1) # Sad Green
+    send_debug('SB'); sleep(1) # Sad Blue
+    send_debug('Q');  sleep(1) # Quiet
+    send_debug('HR'); sleep(1) # Happy Red
+    send_debug('HG'); sleep(1) # Happy Green
+    send_debug('HB'); sleep(1) # Happy Blue
+
+    codes = ["42"]
+    check_code("42", reload_codes=False)
 
 def door_loop():
-    global codes, codes_path, serial_path, keypad, play_intro
+    global keypad
+
+    # Specify a timeout with pyserial, to have read() return after N seconds
+    # with no input.  If the keypad is idle for this long, we'll detect it by
+    # reading zero bytes, and clear the input buffer.
+    keypad.timeout = 10
+
+    input_buffer = ""
 
     while True:
-#        logwrite("Waiting for input from keypad\n")
-        # try:
-        #     keypad.write('Q')
-        #     time.sleep(1)
-        #     alive = keypad.read(6)
-        #     if alive[0:5] == "QUIET":
-        #         logwrite("Good, got back QUIET.\n")
-        #     else:
-        #         logwrite("Bad, got [" + alive + "]\n")
-        # except:
-        #     logwrite("Exception in keypad keepalive.\n")
         try:
-            digits = keypad.read(1)
-            if digits.isdigit():
-                if digits == "0":
-                    logwrite("Dialing operator:\n")
-                    dial_operator()
-                    logwrite("Dialed.\n")
-                keypad.timeout=5 #give 5 seconds after last input
-                while len(digits) < 7 and digits not in codes:
-                    logwrite("entered: " + digits + "\n")
-                    new_digit = keypad.read(1)
-                    if new_digit.isdigit():
-                        digits += new_digit
-                    else: # they hit #, *, or we timed out
-                        break
-                if digits in codes:
-                    gate_status = open_gate()
-                    if gate_status.get('open', False):
-                        logwrite("success, gate opening" + digits + "\n")
-                        keypad.write('BH') #blue led, happy sound
-                        if digits == "181920":
-                            play_intro = True
-                         
-#                        try:
-#                            if chimes[digits]:
-#                                play_intro = True
-#                        except KeyError:
-#                            pass
-                    else:
-                        logwrite("error with the gate\n")
-                        # gate_status.open('message', 'No message received from gate')
-                        # AttributeError: 'dict' object has no attribute 'open'
-                        keypad.write('SR') #sad sound, red led
-                        time.sleep(0.2)
-                        keypad.write('QSR') #quiet, sad sound, red led
-                        time.sleep(0.2)
-                        keypad.write('QSR') #quiet, sad sound, red led
+            char = keypad.read(1)
+
+            if not char:
+                logging.debug("Keypad read timeout, flushing input buffer")
+                input_buffer = ""
+                continue
+
+            if char == "*":
+                logging.debug("Read character %s, flushing input buffer", repr(char))
+                input_buffer = ""
+
+            elif char == "#":
+                if not input_buffer:
+                    logging.debug("Read character %s, but ignoring empty code", repr(char))
                 else:
-                    keypad.write('SR') #sad sound, red led
-                    logwrite("invalid code, gate not opening\n")
-        except: #gotta catch 'em all
-            logwrite("Unknown keypad exception, restarting:\n")
-            logwrite(traceback.format_exc())
-            time.sleep(5)
+                    logging.debug("Read character %s, checking code", repr(char))
+                    check_code(input_buffer)
+                input_buffer = ""
 
-def reload_loop():
-    global codes
-    while True:
-        new_codes = load_codes()
-        if new_codes:
-            codes = new_codes
-        time.sleep(CODES_RELOAD_TIME) #reload 
+            elif char.isdigit():
+                logging.debug("Read character %s", repr(char))
+                input_buffer += char
 
-def load_codes():
-    try:
-        # file format: all lines starting with a 4 digit or greater number,
-        # ignoring whitespace. anything after # is ignored.
-        new_codes = []
-        f = open(codes_path, 'r')
-        for line in f:
-            line = line.split("\n", 1)[0]
-            lines = line.split('#', 1)
-            line = lines[0]
-#            user = lines[1]
-#            chime = lines[2]
-#            [ line, user, chime ] = lines
-            user = ""
-            chime = ""
-            if len(lines) > 1:
-                user = lines[1]
-                if len(lines) > 2:
-                    chime = lines[2]
-
-            entry = line.split(' ', 1)[0]
-#            logwrite(user + " - " + entry + " - " + chime + "\n")
-            if entry.isdigit() and len(entry) >= 4:
-                new_codes.append(entry)
-                if chime:
-                    chimes[entry] = chime
-                    logwrite("SPECIAL ENTRY FOR " + entry + ": " + chime + "\n")
-#                logwrite("Adding code [" + entry + "]\n")
             else:
-                pass
-#                logwrite("Bad code [" + entry + "]\n")
-        return new_codes
+                logging.debug("Ignoring non-digit character: %s" % repr(char))
+
+        except Exception as e:
+            logging.error("Keypad error: %s: %s" % (type(e), str(e)))
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--port",       required=True,          help="Serial port")
+    parser.add_argument("--codefile",   required=True,          help="File containing list of valid access codes")
+    parser.add_argument("--logfile",    default=None,           help="Write output to logfile, rather than standard out")
+    parser.add_argument("--debug",      action="store_true",    help="Enable debugging output")
+    parser.add_argument("--test",       action="store_true",    help="Execute single-shot keypad output test")
+    args = parser.parse_args()
+
+    codes_path = args.codefile
+
+    level = logging.DEBUG if args.debug else logging.INFO
+    logging.basicConfig(format='%(asctime)s %(levelname)-7s %(message)s', datefmt='%Y-%m-%d %H:%M:%S', level=level, filename=args.logfile)
+
+    try:
+        open_serial(args.port)
     except:
-        logwrite("Retaining old code list, unknown error:\n")
-        logwrite(traceback.format_exc())
-        return None
+        logging.error("Serial port setup failed.  Exiting.")
+        sys.exit(1)
 
-parser = OptionParser()
-parser.add_option('-p', '--port', default='/dev/pts/0', dest='port',
-                  help='a serial port to communicate with')
-parser.add_option('-c', '--codefile', default='codes.txt', dest='codefile',
-                  help='a file containing a list of valid code numbers, separated by carriage returns.')
-parser.add_option('-l', '--logfile', default='/tmp/baron.log', dest='logfile',
-                  help='log file (default /tmp/baron.log)')
-parser.add_option('-t', '--test', default='no', dest='test', help='test')
+    if args.test:
+        do_test()
+        sys.exit()
 
-(options, args) = parser.parse_args()
-serial_path = options.port
-codes_path = options.codefile
-logfile = options.logfile
-
-def logwrite(msg):
-    log.write(datetime.now().strftime("%A, %d. %B %Y %I:%M%p ") + msg)
-
-log = open(logfile, 'w', 0) # 0 == unbuffered
-if log == 0:
-    print "Can't log, dying"
-    sys.exit(1)
-logwrite("Starting Baron...\n")
-
-if options.test == "yes":
-    dial_operator()
-    sys.exit()
-
-try:
-    keypad = serial.Serial(serial_path, 300, bytesize=serial.EIGHTBITS,
-                           parity=serial.PARITY_NONE,     
-                           stopbits=serial.STOPBITS_ONE, 
-                           timeout=60, # restart this whole thing every 60 seconds, in case something is confused
-                           xonxoff=0,              
-                           rtscts=0,
-                           writeTimeout=10) #writes should never timeout, but just in case...
-except serial.serialutil.SerialException as err:
-    logwrite("Failed to connect to serial port " + serial_path + ", exiting\n")
-    logwrite(str(err))
-    time.sleep(5)
-    sys.exit(1)
-except:
-    logwrite("Unknown serial open exception, exiting: " + sys.exc_info()[0] +"\n")
-    time.sleep(5)
-    sys.exit(1)
-
-#for i in range(4):
-#2B    keypad.write('R')
- #   sleep(10)
-  #  keypad.write('G')
-   # sleep(10)
-    #keypad.write('B')
-    #sleep(10)
-    
-reload_thread = threading.Thread(target=reload_loop)
-door_thread = threading.Thread(target=door_loop)
-chime_thread = threading.Thread(target=chime_loop)
-reload_thread.start()
-door_thread.start()
-chime_thread.start()
+    logging.info("Starting Baron")
+    load_codes()
+    door_loop()

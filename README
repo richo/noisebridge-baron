@@ -1,0 +1,8 @@
+Setup
+-----
+The baron.conf upstart file starts the daemon as an unprivileged user. Create
+the user "baron" and group "barons" to start the process.
+
+Add users to the group "barons" to enable administration and reading of codes.
+
+chown the codes and log files to only be readable by baron/barons.

@@ -23,6 +23,7 @@ from time import sleep
 keypad = None
 codes_path = None
 codes = []
+promiscuous = False
 
 def open_serial(filename):
     global keypad
@@ -91,10 +92,10 @@ def open_gate(endpoint='http://api.noisebridge.net/gate/', command={'open':1}):
         results = urllib2.urlopen(endpoint, urllib.urlencode(command)).read()
         results = json.loads(results)
     except urllib2.HTTPError, e:
-        logging.error("error: HTTP Error %d when calling <%s>: %s" % (endpoint, e.code, e.read()))
+        logging.error("error: HTTP Error %s when calling <%s>: %s" % (endpoint, e.code, e.read()))
         return False
     except urllib2.URLError, e:
-        logging.error("error: Could not reach <%s> data is %d" % (endpoint, e.args))
+        logging.error("error: Could not reach <%s> data is %s" % (endpoint, e.args))
         return False
     except ValueError:
         logging.error("error: Could not decode JSON from <%s>: %r" % results)
@@ -164,6 +165,11 @@ def door_loop():
                 input_buffer = ""
                 continue
 
+            if promiscuous:
+                logging.info("Opening door in promiscuous mode")
+                open_gate()
+                continue
+
             if char == "*":
                 logging.debug("Read character %s, flushing input buffer", repr(char))
                 input_buffer = ""
@@ -193,9 +199,11 @@ if __name__ == "__main__":
     parser.add_argument("--logfile",    default=None,           help="Write output to logfile, rather than standard out")
     parser.add_argument("--debug",      action="store_true",    help="Enable debugging output")
     parser.add_argument("--test",       action="store_true",    help="Execute single-shot keypad output test")
+    parser.add_argument("--promiscuous",action="store_true",    help="Enable any keypress at all to open the door")
     args = parser.parse_args()
 
     codes_path = args.codefile
+    promiscuous = args.promiscuous
 
     level = logging.DEBUG if args.debug else logging.INFO
     logging.basicConfig(format='%(asctime)s %(levelname)-7s %(message)s', datefmt='%Y-%m-%d %H:%M:%S', level=level, filename=args.logfile)

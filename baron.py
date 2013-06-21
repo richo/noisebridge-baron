@@ -11,7 +11,7 @@
 #   jesse
 #   mct
 
-import urllib, urllib2, json
+import urllib, urllib2, json, hashlib
 import logging
 import serial
 import argparse
@@ -22,7 +22,7 @@ from time import sleep
 
 keypad = None
 codes_path = None
-codes = []
+codes = {}
 promiscuous = False
 
 def open_serial(filename):
@@ -44,15 +44,13 @@ def open_serial(filename):
 last_mtime = 0
 def load_codes(filename=None):
     """
-    Loads a list of valid access codes from the specified filename.  Lines
-    starting with '#' are comments.  All other lines must contain numeric codes
-    which grant access, one code per line.
-
     Each time this function is called, it will only re-open the codes file it's
     mtime since the last call has changed.
     """
 
     global codes_path, codes, last_mtime
+
+    old_count = len(codes)
 
     if not filename:
         filename = codes_path
@@ -65,20 +63,12 @@ def load_codes(filename=None):
         else:
             last_mtime = mtime
 
-        new_codes = []
-        lineno = 0
-
-        for line in open(filename):
-            lineno += 1
-            code = line.split("#")[0].strip().rstrip()
-            if not code:
-                continue
-            if not code.isdigit():
-                logging.warning("%s:%d: Ignoring malformed line" % (filename, lineno))
-            new_codes.append(code)
-
-        logging.info("Loaded %d codes from %s" % (len(new_codes), filename))
-        codes = new_codes
+        try:
+            codes = json.load( file( filename ) )
+        except:
+            logging.warning("Failed to parse json from %s; continuing to use %s loaded codes" % (filename, len(codes)))
+        else:
+            logging.info("Loaded %d codes from %s (had %s before)" % (len(codes), filename, old_count))
 
     except Exception as e:
         logging.error("Error loading %s: %s: %s" % (filename, type(e), str(e)))
@@ -112,8 +102,10 @@ def check_code(code, reload_codes=True):
     if reload_codes:
         load_codes()
 
-    if code and code in codes:
-        logging.info("Opening the door for code %s" % code)
+    hashedcode = hashlib.sha1( code ).hexdigest()
+
+    if code in codes:
+        logging.info("Opening the door for %s (%s)" % (codes[hashedcode]['nickname'], hashedcode))
 
         if open_gate():
             keypad.write('BH')  # Blue LED, Happy sound

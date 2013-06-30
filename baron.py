@@ -17,6 +17,7 @@ import serial
 import argparse
 import sys
 import os
+from datetime import datetime, timedelta
 
 from time import sleep
 
@@ -24,6 +25,27 @@ keypad = None
 codes_path = None
 codes = []
 promiscuous = False
+
+class CodeException(Exception):
+  pass
+class CodeExpired(CodeException):
+  pass
+class Code(object):
+  code = None
+  creation_time = None
+  # -1 is used to indicate that a code is good forever.
+  validity_interval = -1
+  def valid(self):
+    if not (self.code and len(self.code) > 0 and self.code.isdigit()):
+      raise CodeException("Code string is not a string of digits.")
+    if not isinstance(self.creation_time, datetime):
+      raise CodeException("Code creation_time is not a datetime.datetime.")
+    if not isinstance(self.validity_interval, int):
+      raise CodeException("Code validity_interval is not an integer.")
+  def is_expired(self):
+    now = datetime.now()
+    expiration_time = creation_time + timedelta(seconds = self.validity_interval)
+    return (now >= expiration_time)
 
 def open_serial(filename):
     global keypad

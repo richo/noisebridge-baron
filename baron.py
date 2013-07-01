@@ -42,10 +42,16 @@ class Code(object):
       raise CodeException("Code creation_time is not a datetime.datetime.")
     if not isinstance(self.validity_interval, int):
       raise CodeException("Code validity_interval is not an integer.")
+    if self.is_expired():
+      raise CodeExpired("This code has expired.")
+
   def is_expired(self):
-    now = datetime.now()
-    expiration_time = creation_time + timedelta(seconds = self.validity_interval)
-    return (now >= expiration_time)
+    if (self.validity_interval == -1):
+      return False
+    else:
+      now = datetime.now()
+      expiration_time = creation_time + timedelta(seconds = self.validity_interval)
+      return (now >= expiration_time)
 
 def open_serial(filename):
     global keypad

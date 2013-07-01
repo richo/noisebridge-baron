@@ -24,27 +24,40 @@ from time import sleep
 keypad = None
 codes_path = None
 codes = []
+codeset = CodeSet()
 promiscuous = False
 
 class CodeException(Exception):
   pass
 class CodeExpired(CodeException):
   pass
+def code_from_string(code_string, valid_for = seconds_in_one_day):
+  """Create a new code from a string of digits. Valid for one day, by default."""
+  c = Code()
+  c.code = code_string
+  c.creation_time = datetime.now()
+  c.validity_period = timedelta(seconds = valid_for)
+  c.valid()
+  return c
 class Code(object):
   code = None
   creation_time = None
   # -1 is used to indicate that a code is good forever.
   validity_interval = -1
-  def valid(self):
+  enabled = True
+  log = []
+  def assert_validty(self):
     if not (self.code and len(self.code) > 0 and self.code.isdigit()):
       raise CodeException("Code string is not a string of digits.")
     if not isinstance(self.creation_time, datetime):
       raise CodeException("Code creation_time is not a datetime.datetime.")
     if not isinstance(self.validity_interval, int):
       raise CodeException("Code validity_interval is not an integer.")
+    if not self.enabled:
+      raise CodeExpired("This code is disabled")
     if self.is_expired():
       raise CodeExpired("This code has expired.")
-
+    return True
   def is_expired(self):
     if (self.validity_interval == -1):
       return False
@@ -52,6 +65,41 @@ class Code(object):
       now = datetime.now()
       expiration_time = creation_time + timedelta(seconds = self.validity_interval)
       return (now >= expiration_time)
+  def disable(self):
+    self.enabled = False
+  def enable(self):
+    self.enabled = True
+class CodeSet(object):
+  codes = {}
+  def add(self, code):
+    code.assert_validty()
+    if self.get(code):
+      raise Exception("This code already exists in the %s" % self.__class__.__name__)
+    self.codes[code.code] = code
+  def get(self, code_string):
+    return self.codes.get(code_string)
+  def check(self, code_string):
+    c = self.get(code_string)
+    if c and c.assert_validty():
+      return True
+    else:
+      return False
+  def update(self, code):
+    logging.info('Updating %s with new code object for %s' % (self.__class__.__name__, code.code))
+    self.codes[code.code] = code
+  def disable(self, code_string):
+    logging.info('Disabling code %s from the %s' % (code_string, self.__class__.__name__))
+    c = self.codes[code_string]
+    if not c:
+      raise Exception("There is no code %s in the %s." % (code_string, self.__class__.__name__))
+    c.disable()
+
+# Operations on code storage
+# - Set a code
+# - Check for code presence
+# - Check for code validity
+# - Disable a code
+# - Update code expiration date
 
 def open_serial(filename):
     global keypad
@@ -80,7 +128,7 @@ def load_codes(filename=None):
     mtime since the last call has changed.
     """
 
-    global codes_path, codes, last_mtime
+    global codes_path, last_mtime, codeset
 
     if not filename:
         filename = codes_path
@@ -106,7 +154,14 @@ def load_codes(filename=None):
             new_codes.append(code)
 
         logging.info("Loaded %d codes from %s" % (len(new_codes), filename))
-        codes = new_codes
+
+        new_codeset = CodeSet()
+        for code in new_codes:
+          c = Code()
+          c.code = code
+          c.valid()
+          new_codeset.add(c)
+        codeset = new_codeset
 
     except Exception as e:
         logging.error("Error loading %s: %s: %s" % (filename, type(e), str(e)))
@@ -135,12 +190,12 @@ def open_gate(endpoint='http://api.noisebridge.net/gate/', command={'open':1}):
         return False
 
 def check_code(code, reload_codes=True):
-    global codes
+    global codeset
 
     if reload_codes:
         load_codes()
 
-    if code and code in codes:
+    if code and codeset.get(code):
         logging.info("Opening the door for code %s" % code)
 
         if open_gate():
@@ -161,7 +216,7 @@ def send_debug(buf):
     keypad.write(buf)
 
 def do_test():
-    global codes
+    global codeset
 
     send_debug('SR'); sleep(1) # Sad Red
     send_debug('SG'); sleep(1) # Sad Green
@@ -171,7 +226,10 @@ def do_test():
     send_debug('HG'); sleep(1) # Happy Green
     send_debug('HB'); sleep(1) # Happy Blue
 
-    codes = ["42"]
+    codeset = Codeset()
+    c = Code()
+    c.code = 42
+    codeset.add(c)
     check_code("42", reload_codes=False)
 
 def door_loop():

@@ -23,6 +23,10 @@ class BaronTestCase(unittest.TestCase):
         self.urlopen_data = data
         return DummyResult(json.dumps({"open": self.api_open_success}))
 
+    def door_loop(self):
+        loop = baron.DoorLoop()
+        [loop.step() for x in range(10)]
+
     def test_check_code_should_open_door_and_show_blue_led_and_play_happy_sound_for_valid_code(self):
         baron.check_code('42', reload_codes=False)
         self.assertEquals('open=1', self.urlopen_data)
@@ -41,6 +45,48 @@ class BaronTestCase(unittest.TestCase):
     def test_load_codes(self):
         baron.load_codes()
         self.assertEquals(['12345', '2169', '42'], baron.codes)
+
+    def test_door_loop_should_open_door_for_valid_code(self):
+        baron.keypad.add_input('42#')
+        self.door_loop()
+        self.assertEquals('open=1', self.urlopen_data)
+
+    def test_door_loop_should_not_open_door_for_invalid_code(self):
+        baron.keypad.add_input('666#')
+        self.door_loop()
+        self.assertEquals(None, self.urlopen_data)
+
+    def test_door_loop_should_not_open_door_for_valid_code_without_pound_key(self):
+        baron.keypad.add_input('42')
+        self.door_loop()
+        self.assertEquals(None, self.urlopen_data)
+
+    def test_door_loop_should_reset_buffer_on_star_key(self):
+        baron.keypad.add_input('666*42#')
+        self.door_loop()
+        self.assertEquals('open=1', self.urlopen_data)
+
+    def test_door_loop_should_ignore_nondigits(self):
+        baron.keypad.add_input('as4df2jk#')
+        self.door_loop()
+        self.assertEquals('open=1', self.urlopen_data)
+
+    def test_door_loop_should_ignore_empty_code(self):
+        baron.keypad.add_input('#')
+        self.door_loop()
+        self.assertEquals(None, self.urlopen_data)
+
+    def test_door_loop_should_open_door_for_any_keypress_in_promiscuous_mode(self):
+        baron.promiscuous = True
+        baron.keypad.add_input('4')
+        self.door_loop()
+        self.assertEquals('open=1', self.urlopen_data)
+
+    def test_door_loop_should_not_open_door_without_keypress_in_promiscuous_mode(self):
+        baron.promiscuous = True
+        baron.keypad.add_input('')
+        self.door_loop()
+        self.assertEquals(None, self.urlopen_data)
 
 class DummySerial(object):
 

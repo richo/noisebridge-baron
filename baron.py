@@ -146,45 +146,46 @@ def do_test():
     codes = ["42"]
     check_code("42", reload_codes=False)
 
-def door_loop():
-    global keypad
+class DoorLoop(object):
 
-    # Specify a timeout with pyserial, to have read() return after N seconds
-    # with no input.  If the keypad is idle for this long, we'll detect it by
-    # reading zero bytes, and clear the input buffer.
-    keypad.timeout = 10
+    def __init__(self):
+        self.input_buffer = ""
 
-    input_buffer = ""
+    def run(self):
+        while True:
+            self.step()
 
-    while True:
+    def step(self):
+        global keypad
+
         try:
             char = keypad.read(1)
 
             if not char:
                 logging.debug("Keypad read timeout, flushing input buffer")
-                input_buffer = ""
-                continue
+                self.input_buffer = ""
+                return
 
             if promiscuous:
                 logging.info("Opening door in promiscuous mode")
                 open_gate()
-                continue
+                return
 
             if char == "*":
                 logging.debug("Read character %s, flushing input buffer", repr(char))
-                input_buffer = ""
+                self.input_buffer = ""
 
             elif char == "#":
-                if not input_buffer:
+                if not self.input_buffer:
                     logging.debug("Read character %s, but ignoring empty code", repr(char))
                 else:
                     logging.debug("Read character %s, checking code", repr(char))
-                    check_code(input_buffer)
-                input_buffer = ""
+                    check_code(self.input_buffer)
+                self.input_buffer = ""
 
             elif char.isdigit():
                 logging.debug("Read character %s", repr(char))
-                input_buffer += char
+                self.input_buffer += char
 
             else:
                 logging.debug("Ignoring non-digit character: %s" % repr(char))
@@ -225,7 +226,6 @@ if __name__ == "__main__":
         do_test()
         sys.exit()
 
-
     if args.daemon:
       try: 
         pid = os.fork() 
@@ -255,8 +255,14 @@ if __name__ == "__main__":
       except OSError, e: 
           print >>sys.stderr, "fork #2 failed: %d (%s)" % (e.errno, e.strerror) 
           sys.exit(1) 
-      # start the daemon main loop
+
+    # start the daemon main loop
+
+    # Specify a timeout with pyserial, to have read() return after N seconds
+    # with no input.  If the keypad is idle for this long, we'll detect it by
+    # reading zero bytes, and clear the input buffer.
+    keypad.timeout = 10
 
     logging.info("Starting Baron")
     load_codes()
-    door_loop()
+    DoorLoop().run()

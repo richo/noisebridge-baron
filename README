@@ -6,3 +6,9 @@ the user "baron" and group "barons" to start the process.
 Add users to the group "barons" to enable administration and reading of codes.
 
 chown the codes and log files to only be readable by baron/barons.
+
+Tests
+-----
+To run the unit tests when making changes to make sure you didn't break any functionality run:
+
+python test_baron.py

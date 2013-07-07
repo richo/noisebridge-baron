@@ -228,7 +228,7 @@ if __name__ == "__main__":
           sys.exit(0) 
       except OSError, e: 
         print >>sys.stderr, "fork #1 failed: %d (%s)" % (e.errno, e.strerror) 
-          sys.exit(1)
+        sys.exit(1)
 
       # decouple from parent environment
       os.chdir("/") 

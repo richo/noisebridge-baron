@@ -200,6 +200,7 @@ if __name__ == "__main__":
     parser.add_argument("--debug",      action="store_true",    help="Enable debugging output")
     parser.add_argument("--test",       action="store_true",    help="Execute single-shot keypad output test")
     parser.add_argument("--promiscuous",action="store_true",    help="Enable any keypress at all to open the door")
+    parser.add_argument("--daemon",     action="store_true",    help="Daemonize the baron process")
     args = parser.parse_args()
 
     codes_path = args.codefile
@@ -217,6 +218,34 @@ if __name__ == "__main__":
     if args.test:
         do_test()
         sys.exit()
+
+
+    if args.daemon:
+      try: 
+        pid = os.fork() 
+        if pid > 0:
+          # exit first parent
+          sys.exit(0) 
+      except OSError, e: 
+        print >>sys.stderr, "fork #1 failed: %d (%s)" % (e.errno, e.strerror) 
+          sys.exit(1)
+
+      # decouple from parent environment
+      os.chdir("/") 
+      os.setsid() 
+      os.umask(0) 
+
+      # do second fork
+      try: 
+          pid = os.fork() 
+          if pid > 0:
+              # exit from second parent, print eventual PID before
+              print "Daemon PID %d" % pid 
+              sys.exit(0) 
+      except OSError, e: 
+          print >>sys.stderr, "fork #2 failed: %d (%s)" % (e.errno, e.strerror) 
+          sys.exit(1) 
+      # start the daemon main loop
 
     logging.info("Starting Baron")
     load_codes()

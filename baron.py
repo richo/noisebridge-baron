@@ -224,34 +224,34 @@ if __name__ == "__main__":
 
 
     if args.daemon:
-      try: 
-        pid = os.fork() 
+      try:
+        pid = os.fork()
         if pid > 0:
           # exit first parent
-          sys.exit(0) 
-      except OSError, e: 
-        print >>sys.stderr, "fork #1 failed: %d (%s)" % (e.errno, e.strerror) 
+          sys.exit(0)
+      except OSError, e:
+        print >>sys.stderr, "fork #1 failed: %d (%s)" % (e.errno, e.strerror)
         sys.exit(1)
 
       # decouple from parent environment
-      os.chdir("/") 
-      os.setsid() 
-      os.umask(0) 
+      os.chdir("/")
+      os.setsid()
+      os.umask(0)
 
       # do second fork
-      try: 
-          pid = os.fork() 
+      try:
+          pid = os.fork()
           if pid > 0:
               # exit from second parent, print eventual PID before
-              print "Daemon PID %d" % pid 
+              print "Daemon PID %d" % pid
               f = open(args.pidfile, "w")
               f.seek(0)
               f.write(str(pid) + "\n")
               f.close()
-              sys.exit(0) 
-      except OSError, e: 
-          print >>sys.stderr, "fork #2 failed: %d (%s)" % (e.errno, e.strerror) 
-          sys.exit(1) 
+              sys.exit(0)
+      except OSError, e:
+          print >>sys.stderr, "fork #2 failed: %d (%s)" % (e.errno, e.strerror)
+          sys.exit(1)
       # start the daemon main loop
 
     logging.info("Starting Baron")

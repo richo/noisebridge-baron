@@ -66,10 +66,7 @@ def load_codes(filename=None):
             last_mtime = mtime
 
         new_codes = []
-        lineno = 0
-
-        for line in open(filename):
-            lineno += 1
+        for lineno, line in enumerate(open(filename)):
             code = line.split("#")[0].strip().rstrip()
             if not code:
                 continue
